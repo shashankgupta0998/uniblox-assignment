@@ -15,12 +15,16 @@ Attributes the factory must set on `app.state`:
 
 from __future__ import annotations
 
-from fastapi import Request
+import secrets
+from typing import Annotated
+
+from fastapi import Header, Request
 
 from src.config import Config
 from src.core.carts import CartService
 from src.core.checkout import CheckoutService
 from src.core.coupons import CouponService
+from src.core.errors import Forbidden
 from src.core.reports import ReportService
 from src.core.store import InMemoryStore
 
@@ -47,3 +51,21 @@ def get_checkout_service(request: Request) -> CheckoutService:
 
 def get_report_service(request: Request) -> ReportService:
     return request.app.state.report_service
+
+
+def require_admin(
+    request: Request,
+    x_admin_token: Annotated[str | None, Header(alias="X-Admin-Token")] = None,
+) -> None:
+    """Router-level guard for /admin/*. Missing, empty, or wrong token -> 403 FORBIDDEN. [D28]
+
+    The header is optional at the FastAPI layer so a missing token is our 403, not Pydantic's 422.
+    Runs before the route body, so admin routes are guarded even while the services are stubs.
+    """
+    expected = get_config(request).admin_token
+    if x_admin_token is None or x_admin_token == "":
+        raise Forbidden("A valid X-Admin-Token header is required.")
+    # Compare bytes: compare_digest on str raises TypeError for non-ASCII input, and a wrong token
+    # of any byte sequence must be a plain mismatch (403), never a 500. Constant-time either way.
+    if not secrets.compare_digest(x_admin_token.encode("utf-8"), expected.encode("utf-8")):
+        raise Forbidden("A valid X-Admin-Token header is required.")
