@@ -42,8 +42,12 @@ import pytest
 if TYPE_CHECKING:  # pragma: no cover — typing only; no src import at collection time
     from src.config import Config
 
-# Make `src` importable from the repo root regardless of how pytest was invoked.
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+# Make `src` importable from the repo root regardless of how pytest was invoked.  CRITIC's
+# red-proofing sets UNIBLOX_SRC_ROOT to a tmp overlay holding the committed stubs; the harness
+# then imports `src` from there instead, so a gate can be shown red without touching the tree.
+import os
+
+_REPO_ROOT = Path(os.environ.get("UNIBLOX_SRC_ROOT") or Path(__file__).resolve().parent.parent).resolve()
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 

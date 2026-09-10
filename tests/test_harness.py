@@ -15,7 +15,7 @@ import pytest
 
 # Module-level evidence that the async test body actually executed (not skipped).
 _RAN: dict[str, bool] = {"async_body": False}
-_STORE_IDS: list[int] = []
+_SEEN_STORES: list[object] = []  # hold the object itself: a freed store's id() could be reused
 
 
 # --------------------------------------------------------------------------- 1. asyncio_mode
@@ -46,15 +46,15 @@ def test_async_test_was_not_silently_skipped() -> None:
 
 def test_fresh_store_first_test_mutates(fresh_store) -> None:
     """C1 DoD: each test gets a fresh store.  This test deliberately dirties one."""
-    _STORE_IDS.append(id(fresh_store))
+    _SEEN_STORES.append(fresh_store)
     fresh_store.carts["__leak_sentinel__"] = object()
     assert "__leak_sentinel__" in fresh_store.carts
 
 
 def test_fresh_store_second_test_sees_no_leak(fresh_store) -> None:
     """C1 DoD: the next test's store is a different object with none of the previous state.  I1."""
-    assert _STORE_IDS, "ordering assumption broken: the mutating test did not run first"
-    assert id(fresh_store) not in _STORE_IDS
+    assert _SEEN_STORES, "ordering assumption broken: the mutating test did not run first"
+    assert all(fresh_store is not seen for seen in _SEEN_STORES)
     assert "__leak_sentinel__" not in fresh_store.carts
     assert fresh_store.carts == {}
     assert fresh_store.orders == []
