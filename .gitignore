@@ -1,0 +1,11 @@
+# Orchestration mailbox: session prompts and progress. The spec says "do not include
+# private AI transcripts" — this folder is one. Never commit it.
+.orchestration/
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.env
+.DS_Store
