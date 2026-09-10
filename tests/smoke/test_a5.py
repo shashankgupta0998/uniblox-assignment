@@ -125,14 +125,25 @@ async def test_set_item_quantity_is_absolute_and_resnapshots(carts: CartService,
     assert view.gross_minor == 82_000
 
 
-async def test_set_quantity_on_line_not_in_cart(carts: CartService) -> None:
-    """PUT on a product not yet in the cart: either creates the line or refuses — never a crash."""
+async def test_set_quantity_on_line_not_in_cart_creates_it(carts: CartService, fresh_store: InMemoryStore) -> None:
+    """ORCH ruling at A5: PUT on a product not yet in the cart creates the line — snapshotted to the
+    live price, gross updated, nothing reserved.  [D5] [D7]"""
     cart = await carts.create_cart()
-    try:
-        view = await carts.set_item_quantity(cart.id, MOUSE, 1)
-        assert _line(view, MOUSE).quantity == 1
-    except ProductNotFound:
-        pass
+    _set_price(fresh_store, MOUSE, 130_000)
+    view = await carts.set_item_quantity(cart.id, MOUSE, 1)
+    line = _line(view, MOUSE)
+    assert (line.quantity, line.unit_price_minor, line.line_total_minor) == (1, 130_000, 130_000)
+    assert [l.product_id for l in view.lines] == [MOUSE] and view.gross_minor == 130_000
+    assert fresh_store.carts[cart.id].items[MOUSE].quantity == 1
+    assert fresh_store.reserved[MOUSE] == 0
+    _i1(fresh_store)
+
+
+async def test_set_quantity_unknown_product_refused(carts: CartService) -> None:
+    cart = await carts.create_cart()
+    with pytest.raises(ProductNotFound):
+        await carts.set_item_quantity(cart.id, "prd_nope", 1)
+    assert (await carts.get_cart(cart.id)).lines == ()
 
 
 async def test_remove_item_deletes_the_line(carts: CartService) -> None:
