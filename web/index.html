@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Checkout &amp; Rewards — demo harness</title>
+<style>
+  body { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; margin: 16px; color: #111; background: #fff; }
+  section { border: 1px solid #333; padding: 10px 12px; margin-bottom: 12px; }
+  h2 { font-size: 13px; margin: 0 0 8px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  input[type=number] { width: 4em; }
+  pre { margin: 6px 0 0; white-space: pre-wrap; border-top: 1px dashed #999; padding-top: 6px; min-height: 1.2em; }
+  .ok { color: #0a6; } .bad { color: #c00; font-weight: bold; }
+  table { border-collapse: collapse; } td { border: 1px solid #999; padding: 2px 8px; }
+</style>
+</head>
+<body>
+<section id="setup">
+  <h2>SETUP</h2>
+  <div class="bar">
+    admin token <input id="token" value="dev-admin-token" size="18">
+    <span id="config">n=? x=?</span>
+    <span>· state lives for the process lifetime; restart uvicorn to reset seed data</span>
+    <span>· start with <code>PAYMENT_LATENCY_SECONDS=0.2</code> so concurrent requests genuinely overlap in flight</span>
+  </div>
+</section>
+
+<section id="p1">
+  <h2>PANEL 1 — CONCURRENT CHECKOUT / OVERSELL (I1, test C3)</h2>
+  <div class="bar">
+    product <select id="p1-product"></select>
+    N <input id="p1-n" type="number" value="10" min="1" max="100">
+    <button id="p1-fire">FIRE</button>
+  </div>
+  <pre id="p1-out"></pre>
+</section>
+
+<section id="p2">
+  <h2>PANEL 2 — IDEMPOTENCY STORM (I3, test C4)</h2>
+  <div class="bar">
+    N <input id="p2-n" type="number" value="10" min="1" max="100">
+    <button id="p2-fire">FIRE SAME KEY N TIMES</button>
+    <button id="p2-replay">REPLAY THE SAME KEY, SEQUENTIALLY</button>
+    <button id="p2-diff">REPLAY WITH DIFFERENT BODY</button>
+  </div>
+  <pre id="p2-out"></pre>
+</section>
+
+<section id="p3">
+  <h2>PANEL 3 — COUPON RACE (I4, I6, tests C5, C6)</h2>
+  <div class="bar">
+    <button id="p3-setup">SETUP: place n orders</button>
+    <button id="p3-generate">GENERATE COUPON</button>
+    N racers <input id="p3-n" type="number" value="5" min="1" max="50">
+    <button id="p3-race">RACE FOR COUPON</button>
+    <button id="p3-owner">WRONG OWNER</button>
+  </div>
+  <pre id="p3-out"></pre>
+</section>
+
+<section id="p4">
+  <h2>PANEL 4 — LIVE REPORT (I11, I12, I15)</h2>
+  <div class="bar">
+    <button id="p4-refresh">REFRESH</button>
+    <label><input id="p4-poll" type="checkbox"> auto-poll every 2s</label>
+  </div>
+  <pre id="p4-out"></pre>
+</section>
+
+<script>
+'use strict';
+// ---------- tiny helpers: every request goes through api(); nothing is caught silently ----------
+const $ = (s) => document.querySelector(s);
+const out = (id, text) => { $(id).innerHTML = text; };
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'}[c]));
+const mark = (ok) => ok ? '<span class="ok">✅</span>' : '<span class="bad">❌ FAILED</span>';
+const admin = () => ({'X-Admin-Token': $('#token').value});
+const newKey = () => crypto.randomUUID();
+
+async function api(method, path, body, headers = {}) {
+  const init = {method, headers: {...headers}};
+  if (body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(body); }
+  const r = await fetch(path, init);
+  const text = await r.text();
+  let data = null;
+  if (text) { try { data = JSON.parse(text); } catch (e) { data = {parse_error: e.message, raw: text}; } }
+  return {status: r.status, headers: r.headers, data};
+}
+// "201 Created" or "409 INSUFFICIENT_INVENTORY": the raw status plus the error.code verbatim.
+function label(res) {
+  if (res.data && res.data.error) return `${res.status} ${res.data.error.code}`;
+  const names = {200: 'OK', 201: 'Created', 204: 'No Content'};
+  return `${res.status} ${names[res.status] || ''}`.trim();
+}
+function histogram(results) {
+  const counts = new Map();
+  for (const r of results) { const l = label(r); counts.set(l, (counts.get(l) || 0) + 1); }
+  return [...counts.entries()].sort().map(([l, n]) => `  ${l.padEnd(32)} ${n}`).join('\n');
+}
+// Every button: run the panel, render any thrown error verbatim. Never an empty catch.
+function wire(id, fn) {
+  $(id).addEventListener('click', async () => {
+    const pre = '#' + id.slice(1, 3) + '-out';
+    try { await fn(); } catch (e) { out(pre, `<span class="bad">ERROR ${esc(e.message || e)}</span>`); }
+  });
+}
+async function cartWith(productId, qty) {
+  const c = await api('POST', '/carts');
+  if (c.status !== 201) throw new Error(`POST /carts -> ${label(c)}`);
+  const a = await api('POST', `/carts/${c.data.id}/items`, {product_id: productId, quantity: qty});
+  return {cart_id: c.data.id, add: a};
+}
+const checkout = (cartId, key, customerId, couponCode = null) =>
+  api('POST', `/carts/${cartId}/checkout`, {customer_id: customerId, coupon_code: couponCode}, {'Idempotency-Key': key});
+const money = (m) => { const r = Math.trunc(m / 100), p = Math.abs(m % 100); return '₹' + r.toLocaleString('en-IN') + '.' + String(p).padStart(2, '0'); };  // display only [D1]
+
+// ---------- SETUP ----------
+async function loadSetup() {
+  const p = await api('GET', '/products');
+  if (p.status !== 200) throw new Error(`GET /products -> ${label(p)}`);
+  $('#p1-product').innerHTML = p.data.map((x) => `<option value="${x.id}" ${x.id === 'prd_headset' ? 'selected' : ''}>${esc(x.id)} (stock ${x.stock_total}, available ${x.available})</option>`).join('');
+  const r = await api('GET', '/admin/report', undefined, admin());
+  out('#config', r.status === 200 ? `n=${r.data.n} x=${r.data.x}` : `config: ${esc(label(r))}`);
+}
+
+// ---------- PANEL 1 ----------
+wire('#p1-fire', async () => {
+  const pid = $('#p1-product').value, n = Number($('#p1-n').value);
+  const before = (await api('GET', '/products')).data.find((x) => x.id === pid);
+  const carts = await Promise.all(Array.from({length: n}, () => cartWith(pid, 1)));
+  const ready = carts.filter((c) => c.add.status === 201);
+  const results = await Promise.all(ready.map((c) => checkout(c.cart_id, newKey(), 'cus_1')));
+  const after = (await api('GET', '/products')).data.find((x) => x.id === pid);
+  const ok201 = results.filter((r) => r.status === 201).length;
+  const i1 = after.stock_total === after.available + after.reserved + after.sold;
+  out('#p1-out',
+    `FIRED ${results.length} concurrent checkouts against ${esc(pid)} (available before: ${before.available})\n` +
+    (ready.length < n ? `\nadd-to-cart (advisory stock check):\n${esc(histogram(carts.map((c) => c.add)))}\n` : '') +
+    `\ncheckout:\n${esc(histogram(results))}\n\n` +
+    `  201 count ${ok201} <= available before ${before.available}   ${mark(ok201 <= before.available)}\n` +
+    `  stock_total ${after.stock_total}   available ${after.available}   reserved ${after.reserved}   sold ${after.sold}\n` +
+    `  INVARIANT I1  stock_total == available + reserved + sold   ${mark(i1)}`);
+});
+
+// ---------- PANEL 2 ----------
+let storm = null;  // {cart_id, key, order_id} from the last FIRE, reused by the replay buttons
+wire('#p2-fire', async () => {
+  const n = Number($('#p2-n').value);
+  const c = await cartWith('prd_cable', 1);
+  if (c.add.status !== 201) throw new Error(`add item -> ${label(c.add)}`);
+  const key = newKey();
+  const results = await Promise.all(Array.from({length: n}, () => checkout(c.cart_id, key, 'cus_1')));
+  const ids = new Set(results.filter((r) => r.status === 201 || r.status === 200).map((r) => r.data.id));
+  storm = {cart_id: c.cart_id, key, order_id: [...ids][0] || null};
+  out('#p2-out',
+    `FIRED ${n} concurrent checkouts, ONE Idempotency-Key: ${esc(key.slice(0, 8))}…\n\n${esc(histogram(results))}\n` +
+    `  ${'distinct order ids'.padEnd(32)} ${ids.size}   ${mark(ids.size === 1)}   ← the number that matters (I3)`);
+});
+wire('#p2-replay', async () => {
+  if (!storm) throw new Error('fire the storm first');
+  const r = await checkout(storm.cart_id, storm.key, 'cus_1');
+  const same = r.status === 200 && r.data.id === storm.order_id;
+  out('#p2-out', $('#p2-out').innerHTML +
+    `\n\n[REPLAY THE SAME KEY, SEQUENTIALLY]\n  ${esc(label(r))}   Idempotent-Replay: ${esc(r.headers.get('Idempotent-Replay'))}` +
+    `   order ${esc(r.data.id || (r.data.error && r.data.error.code))}   ${same ? '(same id)' : ''} ${mark(same)}`);
+});
+wire('#p2-diff', async () => {
+  if (!storm) throw new Error('fire the storm first');
+  const r = await checkout(storm.cart_id, storm.key, 'cus_1', 'flipped-coupon');
+  out('#p2-out', $('#p2-out').innerHTML +
+    `\n\n[REPLAY WITH DIFFERENT BODY]  (same key, coupon_code flipped)\n  ${esc(label(r))}   ${mark(r.status === 409 && r.data.error.code === 'IDEMPOTENCY_KEY_REUSED')}`);
+});
+
+// ---------- PANEL 3 ----------
+let coupon = null;
+async function firstCoupon() {
+  if (coupon) return coupon;
+  const l = await api('GET', '/admin/coupons', undefined, admin());
+  if (l.status !== 200) throw new Error(`GET /admin/coupons -> ${label(l)}`);
+  return (coupon = l.data[0] || null);
+}
+wire('#p3-setup', async () => {
+  const rep = await api('GET', '/admin/report', undefined, admin());
+  if (rep.status !== 200) throw new Error(`GET /admin/report -> ${label(rep)}`);
+  const n = rep.data.n, lines = [];
+  for (let i = 0; i < n; i++) {
+    const c = await cartWith('prd_cable', 1);
+    const r = await checkout(c.cart_id, newKey(), `cus_${(i % 5) + 1}`);
+    lines.push(`  order ${i + 1}/${n}: ${label(r)}`);
+  }
+  const after = await api('GET', '/admin/report', undefined, admin());
+  out('#p3-out', `SETUP — placed ${n} cheap orders\n${esc(lines.join('\n'))}\n  orders placed now: ${after.data.orders_placed}   (milestone every n=${n})`);
+});
+wire('#p3-generate', async () => {
+  const r = await api('POST', '/admin/coupons', undefined, admin());
+  if (r.status !== 201) { out('#p3-out', `GENERATE -> ${esc(label(r))}  ${esc(JSON.stringify(r.data.error.details))}`); return; }
+  coupon = r.data.coupon;
+  out('#p3-out', `COUPON  ${esc(coupon.code)}  ${coupon.percent}%  milestone ${coupon.milestone}  owner ${esc(coupon.owner_customer_id)}  state ${esc(coupon.state)}  pending_milestones ${r.data.pending_milestones}`);
+});
+wire('#p3-race', async () => {
+  const cp = await firstCoupon();
+  if (!cp) { out('#p3-out', 'no coupon exists yet — run SETUP then GENERATE COUPON'); return; }
+  const n = Number($('#p3-n').value);
+  const carts = await Promise.all(Array.from({length: n}, () => cartWith('prd_cable', 1)));
+  const results = await Promise.all(carts.map((c) => checkout(c.cart_id, newKey(), cp.owner_customer_id, cp.code)));
+  const list = await api('GET', '/admin/coupons', undefined, admin());
+  const now = list.data.find((x) => x.code === cp.code);
+  const wins = results.filter((r) => r.status === 201).length;
+  const i4 = wins <= 1 && (wins === 0 || (now.state === 'REDEEMED' && !!now.redeemed_by_order_id));
+  out('#p3-out', $('#p3-out').innerHTML +
+    `\n\nRACE — ${n} concurrent checkouts by ${esc(cp.owner_customer_id)}, same coupon ${esc(cp.code)}\n${esc(histogram(results))}\n` +
+    `  expected: at most one 201; the rest 422 COUPON_ALREADY_REDEEMED (the ledger lock is held across payment, so losers see the coupon already redeemed)\n` +
+    `  coupon state now: ${esc(now.state)}${now.redeemed_by_order_id ? ' by ' + esc(now.redeemed_by_order_id) : ''}   ${mark(i4)} I4`);
+});
+wire('#p3-owner', async () => {
+  const cp = await firstCoupon();
+  if (!cp) { out('#p3-out', 'no coupon exists yet — run SETUP then GENERATE COUPON'); return; }
+  const other = cp.owner_customer_id === 'cus_4' ? 'cus_3' : 'cus_4';
+  const c1 = await cartWith('prd_cable', 1), c2 = await cartWith('prd_cable', 1);
+  const wrong = await checkout(c1.cart_id, newKey(), other, cp.code);
+  const ghost = await checkout(c2.cart_id, newKey(), other, 'no-such-code');
+  const identical = wrong.status === ghost.status && JSON.stringify(wrong.data) === JSON.stringify(ghost.data);
+  out('#p3-out', $('#p3-out').innerHTML +
+    `\n\nWRONG OWNER — ${esc(other)} presents ${esc(cp.owner_customer_id)}'s coupon\n  ${esc(label(wrong))}   ${esc(JSON.stringify(wrong.data))}\n` +
+    `  unknown code:  ${esc(label(ghost))}   ${esc(JSON.stringify(ghost.data))}\n  identical bodies   ${mark(identical)} I6`);
+});
+
+// ---------- PANEL 4 ----------
+async function refreshReport() {
+  const r = await api('GET', '/admin/report', undefined, admin());
+  if (r.status !== 200) { out('#p4-out', `GET /admin/report -> ${esc(label(r))}`); return; }
+  const d = r.data;
+  const i12 = d.gross_minor - d.discount_minor === d.net_minor;
+  const i15 = d.coupons_generated === d.coupons_available + d.coupons_reserved + d.coupons_redeemed;
+  out('#p4-out',
+    `orders placed        ${d.orders_placed}\n` +
+    `items purchased      ${esc(d.items_purchased.map((i) => `${i.product_id} ${i.quantity}`).join('    ')) || '—'}\n\n` +
+    `gross      ${money(d.gross_minor).padStart(16)}   (${d.gross_minor} minor)\n` +
+    `discount   ${money(d.discount_minor).padStart(16)}   (${d.discount_minor} minor)\n` +
+    `net        ${money(d.net_minor).padStart(16)}   (${d.net_minor} minor)     I12  gross - discount == net   ${mark(i12)}\n\n` +
+    `coupons    generated ${d.coupons_generated}   available ${d.coupons_available}   reserved ${d.coupons_reserved}   redeemed ${d.coupons_redeemed}\n` +
+    `                          I15  generated == available + reserved + redeemed   ${mark(i15)}\n\nn=${d.n}  x=${d.x}`);
+}
+wire('#p4-refresh', refreshReport);
+let poll = null;
+$('#p4-poll').addEventListener('change', (e) => {
+  if (poll) { clearInterval(poll); poll = null; }
+  if (e.target.checked) { refreshReport(); poll = setInterval(refreshReport, 2000); }
+});
+$('#token').addEventListener('change', () => loadSetup().catch((e) => out('#config', esc(e.message))));
+loadSetup().catch((e) => out('#config', `<span class="bad">${esc(e.message)}</span>`));
+</script>
+</body>
+</html>

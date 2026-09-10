@@ -99,7 +99,7 @@ async def test_one_coupon_n_racers_exactly_one_wins(client: httpx.AsyncClient, f
     _i1(fresh_store)
     for r in responses:
         if r.status_code != 201:
-            assert r.status_code in (409, 422) and r.json()["error"]["code"] in ("COUPON_IN_USE", "COUPON_ALREADY_REDEEMED")
+            assert r.status_code == 422 and r.json()["error"]["code"] == "COUPON_ALREADY_REDEEMED", r.text
             assert "Idempotent-Replay" not in r.headers
 
 
