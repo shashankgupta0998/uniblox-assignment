@@ -3,13 +3,13 @@
 Design decisions, resolved ambiguities, and deliberate omissions for the checkout and rewards
 service.
 
-> **⚠️ Sections marked `TO COMPLETE AT SUBMISSION` are written after implementation.** They are
-> §9 (Implemented vs deferred), the time declaration in §12, and verification of §11 (AI use).
-> Everything else is settled before a line of code is written and should not change during the build.
+> **Status: post-build.** §1–§8, §10 and §12 were written before any code and were not changed during
+> the build. §9, §11 and §13 were completed after it. [D39] records the one place the build corrected
+> the plan.
 
 **How to read this.** Every decision has a stable tag `[D#]` used across `CLAUDE.md`, `PRD.md`,
 `TAD.md`, `SAD.md`, `FSD.md`, and `FTL.md`. Tags are never reused or renumbered. §4 gives the full
-Context / Options / Choice / Why / Consequences treatment to the seventeen material decisions; §5 lists
+Context / Options / Choice / Why / Consequences treatment to the eighteen material decisions; §5 lists
 the sixteen supporting decisions in compact form, because padding those into long form would obscure which
 ones actually mattered.
 
@@ -646,6 +646,39 @@ no grading benefit.
 
 ---
 
+### Decision: The coupon-race loser receives `COUPON_ALREADY_REDEEMED`, not `COUPON_IN_USE` `[D39]`
+
+**Context:** The plan specified that N concurrent checkouts presenting one coupon yield one `201` and
+N−1 `409 COUPON_IN_USE` — the losers observing the coupon in `RESERVED`. The critic session's C5 test
+could not produce that outcome, and worked out why rather than weakening the assertion.
+
+**Options considered:**
+- *Keep as built.* Losers receive `422 COUPON_ALREADY_REDEEMED`; `COUPON_IN_USE` stays in the catalogue,
+  annotated as unreachable in-process.
+- *Release the ledger lock before the payment `await`* so that `RESERVED` becomes observable and
+  `COUPON_IN_USE` is reachable.
+- *Delete `COUPON_IN_USE`* from the enum and catalogue.
+
+**Choice:** Keep as built. The orchestrator session ruled this during the build as an explicitly
+reversible assumption and flagged it for me; I ratified it after the build with the reasoning below.
+
+**Why:** The coupon-ledger lock is held across the payment `await` by design — that is the entire
+mechanism of [D24] and [D25]. Under it, a loser cannot enter `reserve_locked` until the winner has
+released the lock, by which point the coupon is `REDEEMED` (or `AVAILABLE`, if the winner's payment
+failed — in which case the "loser" simply wins). `RESERVED` is observable only by the lock-free report
+[D31], which is exactly why **I15** exposes it. Releasing the lock early would reopen the race the lock
+exists to close. Deleting the code would change a frozen interface to remove a state that is
+**forward-correct**: under the §10 production design, if payment moves outside the database
+transaction, competing checkouts *do* observe `RESERVED`, and `COUPON_IN_USE` becomes reachable.
+
+**Consequences:** PRD AC-D7, TAD §7, SAD A9, FSD §6 and FTL C5 were corrected after the build to match
+the code. `COUPON_IN_USE` remains in the enum, raised by `reserve_locked` on a `RESERVED` coupon, and is
+reachable in-process only from the threadpool demonstration [D26], where the locks do not serialise.
+This is the one place the plan specified a state the design it described cannot produce. The critic
+found it by testing, not by reading — which is the gate doing its job.
+
+---
+
 ## 5. Supporting decisions
 
 Real decisions that did not warrant long form. Expanding these would obscure which ones actually
@@ -724,29 +757,62 @@ catalogue: `TAD.md` §7.
 
 ## 9. Implemented vs deferred
 
-> **⚠️ TO COMPLETE AT SUBMISSION.** The deferred list below is the *planned* one, derived from
-> `SAD.md` §4 and `FTL.md`'s cut list. At submission, reconcile it against what was actually built,
-> move anything cut into the deferred table, and state plainly what is incomplete.
+**Build record.** 17 tickets, 20 commits (commit 0 is the planning documents), **one rework in the
+entire build** (B5), zero `BLOCKED` escalations, zero cuts. 1,906 lines under `src/`. 687 tests green
+in ~14 s. Every ticket in `FTL.md` shipped, including both marked cuttable — the threadpool weakness
+demonstration (C9) and the demo harness (C11, 254 lines against a 400-line budget).
 
-**Planned as implemented:** all fifteen invariants; the full HTTP surface in `TAD.md` §8; ordered
-locking; the idempotency mechanism in full ([D19]–[D23]); the coupon lifecycle with release-on-failure;
-per-order half-even money; the reconciling report; and tests C1–C8.
+**Implemented.** All fifteen invariants in §1, each with the test named there. The full HTTP surface of
+`TAD.md` §8 (13 routes), with OpenAPI generated at `/docs`. Ordered locking through `LockManager`,
+plus a test that bypasses it and shows the invariant breaking
+(`tests/test_concurrency_inventory.py::test_lock_is_load_bearing_bypass_breaks_i2`) — the lock is
+demonstrated load-bearing, not asserted. Idempotency in all four scenarios of [D19]–[D23] plus scope,
+twelve tests. The coupon lifecycle with release-on-failure, including survival across *repeated*
+failed checkouts. Per-order half-even money. The reconciling report exposing `reserved`. The
+threadpool demonstration. The demo harness.
+
+**Where the build corrected the plan** — three places, all recorded rather than papered over:
+
+1. **`COUPON_IN_USE` is unreachable in-process.** The losers of a coupon race receive
+   `422 COUPON_ALREADY_REDEEMED`. Full reasoning in [D39]; PRD, TAD, SAD, FSD and FTL corrected.
+2. **The demo harness has no "force payment failure" row.** It would need a per-request gateway
+   switch — a test hook in production code. **I5** and **I13** are proven by
+   `tests/test_release_on_failure.py` instead of shown in a browser. Cost to restore: a test-only
+   endpoint behind the admin token, ~20 min; judged not worth a production-code hook.
+3. **Framework-level 404 (unknown path) and 405 (wrong method) keep Starlette's default body.** The
+   catalogue has no code for them, and inventing `ROUTE_NOT_FOUND` for a condition the domain never
+   raises was judged not worth it. Every domain and validation failure uses the envelope. Cost: two
+   handlers, ~10 min.
+
+**Tests — what ships, and why there are two kinds.** `tests/` holds the **90 business-rule tests**:
+money, idempotency, inventory concurrency, coupon concurrency, release-on-failure, price drift, report
+reconciliation, the `CART_MODIFIED` window, validation, and the threadpool demonstration. Those are
+the tests the spec's "small number of meaningful tests" refers to, and every one names the invariant
+it protects. `tests/gates/` holds **202 per-ticket build gates** — signature diffs against `TAD.md`
+§3, schema strictness, router status codes, app-factory singletons, per-module smoke checks — written
+by the critic session as the definition-of-done check for each ticket. They are kept, segregated,
+because they are the evidence that every ticket was gated, and because deleting tests to look leaner
+is worse than explaining them. A reviewer who wants only the meaningful tests runs
+`pytest tests --ignore=tests/gates`.
 
 **Deliberately deferred, with the cost to close:**
 
 | Deferred | Why | Cost to close |
 |---|---|---|
-| Authentication and authorization | Explicitly out of scope per the spec | 2–3h |
-| Ownership checks on `GET /carts`, `GET /orders` | Needs a verified identity; checking an unverified claim is fake access control, which is worse than none | Trivial after authn |
-| **Timeout on the payment call** | Fake gateway never hangs — but a slow one would hold the product lock for its full duration | ~20 min. **Highest value/effort ratio on this list** |
+| **Timeout on the payment call** | The fake gateway never hangs; a real one would hold the product and ledger locks for its full duration (`SAD.md` A8) | ~20 min. **Highest value/effort ratio here** |
 | Idempotency record TTL and eviction | Unbounded growth is irrelevant at demo scale; it is nonetheless a leak | ~30 min. Mandatory before production |
+| Bounded retry instead of `409 CART_MODIFIED` | Detected and refused, not retried; pushes a narrow race onto the client (§12) | ~30 min |
+| Test-only gateway switch (restores the harness row) | A test hook in production code | ~20 min |
+| Envelope for framework 404/405 | The domain never raises them | ~10 min |
+| Authentication; ownership checks on `GET /carts`, `GET /orders` | Out of scope per spec; checking an unverified claim is fake access control | 2–3h; trivial after authn |
 | Coupon expiry | [D18] | ~45 min including a clock seam |
 | Minimum order value for milestone eligibility | Blunts coupon farming (`SAD.md` A1); a product decision the spec does not make | ~10 min |
 | Rate limiting / velocity limits | Does not fit the timebox | ~1h in-process |
-| Persistence | Spec permits in-memory | See §10 |
+| Persistence and multi-instance | Spec permits in-memory | §10 |
 | Audit log of admin actions | No logging infrastructure in scope | ~30 min |
-| Multi-currency, tax, refunds, cancellation, partial fulfilment | Not in the spec | — |
-| Pagination, metrics, tracing | Noise at seed scale | — |
+| Multi-currency, tax, refunds, cancellation, partial fulfilment, pagination | Not in the spec | — |
+
+No ticket was cut and nothing planned is unimplemented.
 
 ---
 
@@ -816,7 +882,22 @@ done — including running the invariant greps literally and refusing on any `aw
 scope other than the payment call. `CLAUDE.md` encodes the
 invariants, the lock ordering, the money rule, and the ownership boundaries, and is loaded by every
 session. The intent was that the design not drift under generation — the interfaces were the contract,
-not a suggestion.
+not a suggestion. Seventeen tickets, one rework, zero blocked escalations, zero cuts.
+
+**Where the critic gate caught a real bug.** One rework in seventeen tickets. B5's admin-token check
+used `secrets.compare_digest` on `str` values, which raises `TypeError` when the supplied token
+contains non-ASCII characters — turning a `403 FORBIDDEN` into a `500`. The critic sent a non-ASCII
+token, got the 500, and returned a FAIL naming the file and line; the worker fixed it by comparing
+bytes. Neither I nor the orchestrator would have thought to try that input.
+
+**Where the build corrected the plan.** The plan — written with AI, every ambiguity resolved by me —
+specified that the loser of a concurrent coupon race receives `409 COUPON_IN_USE`. The critic could not
+produce that outcome and worked out why: the ledger lock is held across the payment await, so no
+competitor ever observes `RESERVED`. The orchestrator ruled to keep the code as built and flagged the
+ruling for me; I ratified it after the build with the reasoning in [D39]. If asked where AI-generated
+*design* was wrong, this is the example: the planning session specified an error state that the
+design it had itself described cannot produce, and a differently-prompted session caught it by testing
+rather than by reading.
 
 **What I did not do:** accept generated concurrency code without reasoning about its yield points. The
 single-`await`-per-critical-section rule ([D24]) exists partly for this reason — it makes the property
@@ -854,9 +935,14 @@ In priority order.
 
 ## 13. Time spent
 
-> **⚠️ TO COMPLETE AT SUBMISSION.**
->
-> Declare **wall-clock** time and state that implementation was parallelised across three sessions —
-> do not report wall-clock as though it were person-hours. Planning time (spec analysis, ambiguity
-> resolution, and these documents) should be stated separately from implementation time. If anything
-> is incomplete, say so here directly and explain how it would be finished.
+Approximately **3.5 hours wall-clock**, in three phases:
+
+- **~2 h planning**, before any code: spec analysis, four rounds of ambiguity resolution, and the
+  seven design documents (`CLAUDE.md`, `PRD.md`, `TAD.md`, `SAD.md`, `FSD.md`, `FTL.md`, this file).
+- **~1 h 15 m build**: first ticket issued 15:45 IST on 10 Sep; the halfway checkpoint (A3) at 16:33;
+  everything through B7 and C9 by roughly 16:50; the C5 ruling and the demo harness completed after
+  an overnight pause, finishing 01:06 IST on 11 Sep.
+- **~20 m** post-build verification against the plan, the [D39] ratification, and these sections.
+
+The build ran as three concurrent sessions — orchestrator, worker, critic — so machine time exceeds
+wall-clock. The figure declared is wall-clock. No ticket was cut and nothing is incomplete.

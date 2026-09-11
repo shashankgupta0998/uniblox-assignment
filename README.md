@@ -294,25 +294,25 @@ is no authentication by design (see `DECISIONS.md`).
 
 | # | Invariant | Tests |
 |---|---|---|
-| I1 | `stock_total == available + reserved + sold`, never oversell | `tests/test_concurrency_inventory.py`, `tests/smoke/test_a3.py` |
-| I2 | A cart is checked out at most once | `tests/test_validation.py`, `tests/smoke/test_a5.py` |
-| I3 | One `(cart_id, Idempotency-Key)` yields at most one order under any interleaving | `tests/test_idempotency.py`, `tests/smoke/test_a4.py` |
-| I4 | A coupon is redeemed at most once, by one order | `tests/test_coupons_concurrency.py`, `tests/smoke/test_a6.py` |
+| I1 | `stock_total == available + reserved + sold`, never oversell | `tests/test_concurrency_inventory.py`, `tests/gates/smoke/test_a3.py` |
+| I2 | A cart is checked out at most once | `tests/test_validation.py`, `tests/gates/smoke/test_a5.py` |
+| I3 | One `(cart_id, Idempotency-Key)` yields at most one order under any interleaving | `tests/test_idempotency.py`, `tests/gates/smoke/test_a4.py` |
+| I4 | A coupon is redeemed at most once, by one order | `tests/test_coupons_concurrency.py`, `tests/gates/smoke/test_a6.py` |
 | I5 | A failed checkout returns the coupon to `AVAILABLE` | `tests/test_release_on_failure.py` |
-| I6 | A coupon is redeemable only by its owner; wrong owner and unknown code are indistinguishable | `tests/test_coupons_concurrency.py`, `tests/smoke/test_a6.py` |
-| I7 | At most one coupon per milestone, ever | `tests/test_coupons_concurrency.py`, `tests/smoke/test_a6.py` |
-| I8 | Only `PLACED` orders count | `tests/test_report.py`, `tests/smoke/test_a3.py` |
+| I6 | A coupon is redeemable only by its owner; wrong owner and unknown code are indistinguishable | `tests/test_coupons_concurrency.py`, `tests/gates/smoke/test_a6.py` |
+| I7 | At most one coupon per milestone, ever | `tests/test_coupons_concurrency.py`, `tests/gates/smoke/test_a6.py` |
+| I8 | Only `PLACED` orders count | `tests/test_report.py`, `tests/gates/smoke/test_a3.py` |
 | I9 | `0 <= discount <= gross` | `tests/test_money.py` |
-| I10 | Orders are immutable and carry their own price snapshot | `tests/test_price_drift.py`, `tests/smoke/test_a3.py` |
-| I11 | The report is a pure read | `tests/test_report.py`, `tests/test_routers_admin.py` |
+| I10 | Orders are immutable and carry their own price snapshot | `tests/test_price_drift.py`, `tests/gates/smoke/test_a3.py` |
+| I11 | The report is a pure read | `tests/test_report.py`, `tests/gates/test_routers_admin.py` |
 | I12 | `gross - discount == net` exactly | `tests/test_money.py`, `tests/test_report.py` |
 | I13 | Inventory reserved by a failed checkout is released in full | `tests/test_release_on_failure.py` |
-| I14 | Money is integer minor units; no float anywhere | `tests/test_money.py`, `tests/test_schemas.py` |
-| I15 | `coupons.generated == available + reserved + redeemed` | `tests/test_report.py`, `tests/smoke/test_a6.py` |
+| I14 | Money is integer minor units; no float anywhere | `tests/test_money.py`, `tests/gates/test_schemas.py` |
+| I15 | `coupons.generated == available + reserved + redeemed` | `tests/test_report.py`, `tests/gates/smoke/test_a6.py` |
 
 The error contract, the frozen interfaces, and the app wiring have their own tests
-(`tests/test_error_envelope.py`, `tests/test_signatures.py`, `tests/test_app_factory.py`, the
-`tests/test_routers_*.py` files).
+(`tests/gates/test_error_envelope.py`, `tests/gates/test_signatures.py`, `tests/gates/test_app_factory.py`, the
+`tests/gates/test_routers_*.py` files).
 
 ## Known limitations
 
@@ -333,5 +333,5 @@ Deliberate, and each is reasoned through in [`DECISIONS.md`](DECISIONS.md):
 
 ## Time spent
 
-Approximately **__ hours wall-clock**, parallelised across three sessions (orchestrator, worker,
+Approximately **3.5 hours wall-clock**, parallelised across three sessions (orchestrator, worker,
 critic); see `DECISIONS.md` §13 for the accounting and what was cut.

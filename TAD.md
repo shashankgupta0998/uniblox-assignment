@@ -342,7 +342,7 @@ class CouponService:
     def reserve_locked(self, code: str, customer_id: str) -> Coupon:
         """Unknown code, or owner != customer_id -> CouponInvalid (identical).  [D17][I6]
         REDEEMED and owned by caller -> CouponAlreadyRedeemed.
-        RESERVED -> CouponInUse.  [I4]
+        RESERVED -> CouponInUse.  [I4]  (unreachable from checkout in-process — [D39])
         AVAILABLE -> set RESERVED, return it."""
     def commit_locked(self, code: str, order_id: str) -> None: ...
     def release_locked(self, code: str) -> None:
@@ -636,7 +636,7 @@ checkout" and "inventory lost by a failed checkout" are one code path with one t
 | `UNKNOWN_CUSTOMER` | 422 | `customer_id` not in the seeded set | — |
 | `COUPON_INVALID` | 422 | Nonexistent **or** owned by another customer. Identical body. [D17] | I6 |
 | `COUPON_ALREADY_REDEEMED` | 422 | Redeemed, and owned by the requesting customer | I4 |
-| `COUPON_IN_USE` | 409 | Reserved by a concurrent checkout | I4 |
+| `COUPON_IN_USE` | 409 | Coupon is `RESERVED` by another checkout. **Unreachable in-process**: the ledger lock is held across payment, so a competitor always sees the terminal state. Retained — reachable under the §9 saga design. [D39] | I4 |
 | `NO_ELIGIBLE_MILESTONE` | 409 | Admin generate with nothing to reward [D14] | I7 |
 | `IDEMPOTENCY_KEY_REQUIRED` | 400 | Missing header on checkout | I3 |
 | `IDEMPOTENCY_KEY_REUSED` | 409 | Same key, different body [D20] | I3 |

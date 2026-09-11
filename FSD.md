@@ -121,7 +121,7 @@ COUPON  CPN-7f3a12  10%  milestone 1  owner cus_2
 
 RACE — 5 concurrent checkouts, same coupon
   201 Created                 1
-  409 COUPON_IN_USE           4
+  422 COUPON_ALREADY_REDEEMED 4
   coupon state now: REDEEMED by ord_9c2f...        ✅ I4
 
 WRONG OWNER — cus_4 presents cus_2's coupon
@@ -133,8 +133,10 @@ PAYMENT FAILURE — checkout reserves the coupon then declines
   reserved inventory: 0         (released)                        ✅ I13
 ```
 
-The payment-failure row is the most valuable output in the whole harness — **I5** is the one
-invariant the spec calls out by name that has no visible symptom otherwise.
+**Post-build note.** The payment-failure row was **not built**: it needs a per-request gateway switch,
+which is a test hook in production code (`DECISIONS.md` §9). **I5** and **I13** are proven by
+`tests/test_release_on_failure.py` instead. The race row's loser code is `422 COUPON_ALREADY_REDEEMED`,
+not the `409 COUPON_IN_USE` originally specified — see [D39].
 
 ## 7. Panel 4 — Live report
 

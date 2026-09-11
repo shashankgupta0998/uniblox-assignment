@@ -125,7 +125,8 @@ to the response for a code that does not exist. **I6** [D17]
 **AC-D6** A coupon already redeemed **by the requesting customer** → `422 COUPON_ALREADY_REDEEMED`.
 That is the customer's own coupon; saying so leaks nothing.
 **AC-D7** Two concurrent checkouts presenting the same coupon: exactly one redeems it, the other
-gets `409 COUPON_IN_USE`. **I4**
+gets `422 COUPON_ALREADY_REDEEMED` — it reaches the ledger only after the winner has committed.
+`COUPON_IN_USE` is unreachable in-process; see [D39]. **I4**
 **AC-D8** A checkout that fails *after* reserving a coupon returns it to `AVAILABLE`. The coupon is
 never lost. **I5** [D30]
 
@@ -139,13 +140,11 @@ never lost. **I5** [D30]
 **AC-R1** `GET /admin/report` returns:
 
 ```
-orders.placed
-items_purchased[]           product_id, name, quantity
-revenue.gross_minor         sum of order gross
-revenue.discount_minor      sum of order discount
-revenue.net_minor           sum of order net
-coupons.generated / available / reserved / redeemed
-config.n / config.x
+orders_placed
+items_purchased[]                         product_id, name, quantity
+gross_minor / discount_minor / net_minor  sums over PLACED orders
+coupons_generated / coupons_available / coupons_reserved / coupons_redeemed
+n / x                                     the configured reward values
 ```
 
 **AC-R2** It is a pure read. Two identical calls return identical bodies. **I11**

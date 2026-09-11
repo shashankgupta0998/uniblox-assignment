@@ -211,7 +211,7 @@ Session C can begin as soon as **A1** lands. Write tests against the stubs; they
 
 ### `C5` — Coupon race · 45m · dep: A7, A6
 - **Files:** `tests/test_coupons_concurrency.py`
-- **DoD:** N concurrent checkouts with one coupon: exactly one `201`, rest `409 COUPON_IN_USE`, final
+- **DoD:** N concurrent checkouts with one coupon: exactly one `201`, rest `422 COUPON_ALREADY_REDEEMED` (corrected post-build — [D39]; the original DoD's `409 COUPON_IN_USE` is unreachable), final
   state `REDEEMED` with exactly one `redeemed_by_order_id`. N concurrent `POST /admin/coupons` at one
   milestone: exactly one coupon created. Wrong-owner returns a body **byte-identical** to unknown-code.
 - **Protects:** **I4 I6 I7** · [D12] [D17]

@@ -71,6 +71,8 @@ CRITIC  UNIBLOX-CRITIC   tests/**                                    all FTL C* 
 ```
 
 In `FTL.md`, "Session A/B/C" is a *ticket family*, not a session: A* and B* → WORKER, C* → CRITIC.
+**Post-build QA (`UNIBLOX-QA`):** the build is complete; one session owns every file. Every other rule
+here still applies. A frozen-signature change needs a `TAD.md` + `DECISIONS.md` update in the same commit.
 Loop protocol and message formats: `.orchestration/PROTOCOL.md`.
 
 **Do not edit files outside your assigned ownership.** If you need a change in another session's

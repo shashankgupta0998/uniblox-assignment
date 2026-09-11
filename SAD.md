@@ -183,7 +183,8 @@ is deferred only because a fake gateway never hangs.
 
 **Closed by design.** Reservation happens under the coupon-ledger lock, and `reserve_locked` is
 **synchronous** — it cannot yield, so the check-and-set is atomic. The first caller moves the coupon
-to `RESERVED`; every other caller sees `RESERVED` and gets `409 COUPON_IN_USE`. Exercised directly
+to `RESERVED`; every other caller arrives after the winner has committed and gets `422 COUPON_ALREADY_REDEEMED` —
+`RESERVED` is never observable to a competitor, because the ledger lock is held across payment [D39]. Exercised directly
 by test C5.
 
 ### A10 — Admin milestone double-reward *(against I7)*
@@ -209,9 +210,9 @@ Enforced by Pydantic v2 at the edge with `strict=True` [D36]; violations become
 | | `quantity` | `int`, strict, `gt=0`, `le=100` | 422 |
 | | | ≤ current available stock (**advisory**) | `422 QUANTITY_EXCEEDS_STOCK` |
 | `PUT /carts/{id}/items/{pid}` | `quantity` | `int`, strict, `gt=0`, `le=100` | 422 |
-| `DELETE /carts/{id}/items/{pid}` | path only | line must exist | 404 |
+| `DELETE /carts/{id}/items/{pid}` | path only | idempotent — a missing line is a no-op | 204 either way |
 | `POST /carts/{id}/reprice` | — | cart must be `OPEN` | `409 CART_ALREADY_CHECKED_OUT` |
-| `POST /carts/{id}/checkout` | `Idempotency-Key` | header **required**, 8–128 chars | `400 IDEMPOTENCY_KEY_REQUIRED` / 422 |
+| `POST /carts/{id}/checkout` | `Idempotency-Key` | header **required**, non-empty, ≤ 128 chars. No minimum: lazy keys are safe under cart scoping [D19] | `400 IDEMPOTENCY_KEY_REQUIRED` / 422 |
 | | `customer_id` | non-empty str, must be a seeded id | `422 UNKNOWN_CUSTOMER` |
 | | `coupon_code` | optional str, ≤ 64 chars | 422 |
 | | body | must have no extra fields (`extra="forbid"`) | 422 |
