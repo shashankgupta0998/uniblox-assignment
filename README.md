@@ -333,5 +333,5 @@ Deliberate, and each is reasoned through in [`DECISIONS.md`](DECISIONS.md):
 
 ## Time spent
 
-Approximately **3.5 hours wall-clock**, parallelised across three sessions (orchestrator, worker,
+Approximately **4 hours wall-clock**, parallelised across three sessions (orchestrator, worker,
 critic); see `DECISIONS.md` §13 for the accounting and what was cut.

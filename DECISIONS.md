@@ -762,6 +762,16 @@ entire build** (B5), zero `BLOCKED` escalations, zero cuts. 1,906 lines under `s
 in ~14 s. Every ticket in `FTL.md` shipped, including both marked cuttable — the threadpool weakness
 demonstration (C9) and the demo harness (C11, 254 lines against a 400-line budget).
 
+**QA record.** After the build, a separate session ran **67 manual scenarios against the running
+service** — every endpoint, the README flow verbatim, the demo harness's concurrency panels, and the
+env-var configuration — comparing response *bodies*, not just status codes. It found **one code bug**:
+`SAD.md` §3 documented the `Idempotency-Key` header as at most 128 characters and the router did not
+enforce it, so a 200-character key produced an order. Fixed with a one-line `max_length` on the header
+declaration and two tests in `tests/test_validation.py` (689 green after). It found **one doc bug**:
+TAD §7's closing sentence understated which errors carry an identifier in `details`; corrected, no
+behaviour changed. The critic had missed the first because it gated against `FTL.md` definitions of
+done, and the length bound lived only in `SAD.md` — a gap *between* two documents, not in either.
+
 **Implemented.** All fifteen invariants in §1, each with the test named there. The full HTTP surface of
 `TAD.md` §8 (13 routes), with OpenAPI generated at `/docs`. Ordered locking through `LockManager`,
 plus a test that bypasses it and shows the invariant breaking
@@ -899,6 +909,13 @@ ruling for me; I ratified it after the build with the reasoning in [D39]. If ask
 design it had itself described cannot produce, and a differently-prompted session caught it by testing
 rather than by reading.
 
+**Where a second, differently-scoped session caught what the first missed.** The critic gated every
+ticket against `FTL.md` and never failed the `Idempotency-Key` length bound, because that bound was
+written only in `SAD.md` §3 and no ticket's definition of done referenced it. A post-build QA session,
+prompted to test the *running service against every document* rather than the code against its
+tickets, found it in scenario B15 within minutes. The lesson I would carry forward: a gate is only as
+complete as the documents it is told to read.
+
 **What I did not do:** accept generated concurrency code without reasoning about its yield points. The
 single-`await`-per-critical-section rule ([D24]) exists partly for this reason — it makes the property
 auditable with `grep` rather than by trusting a reading of the code.
@@ -935,7 +952,7 @@ In priority order.
 
 ## 13. Time spent
 
-Approximately **3.5 hours wall-clock**, in three phases:
+Approximately **4 hours wall-clock**, in four phases:
 
 - **~2 h planning**, before any code: spec analysis, four rounds of ambiguity resolution, and the
   seven design documents (`CLAUDE.md`, `PRD.md`, `TAD.md`, `SAD.md`, `FSD.md`, `FTL.md`, this file).
@@ -943,6 +960,8 @@ Approximately **3.5 hours wall-clock**, in three phases:
   everything through B7 and C9 by roughly 16:50; the C5 ruling and the demo harness completed after
   an overnight pause, finishing 01:06 IST on 11 Sep.
 - **~20 m** post-build verification against the plan, the [D39] ratification, and these sections.
+- **~20 m manual QA**: 67 scenarios against the running service; one code bug and one doc bug found,
+  fixed with tests, and pushed (§9).
 
 The build ran as three concurrent sessions — orchestrator, worker, critic — so machine time exceeds
 wall-clock. The figure declared is wall-clock. No ticket was cut and nothing is incomplete.
