@@ -139,6 +139,25 @@ async def test_blank_idempotency_key_400(app_client: httpx.AsyncClient) -> None:
     _err(resp, 400, "IDEMPOTENCY_KEY_REQUIRED")
 
 
+async def test_idempotency_key_over_128_chars_422(app_client: httpx.AsyncClient) -> None:
+    """SAD §3 / I3: the Idempotency-Key header is bounded at 128 chars -> 422 VALIDATION_FAILED naming
+    the header. Found by QA B15: a 200-char key was accepted."""
+    resp = await app_client.post(
+        f"/carts/{GHOST_CART}/checkout", json={"customer_id": "cus_1"}, headers={"Idempotency-Key": "k" * 129}
+    )
+    body = _err(resp, 422, "VALIDATION_FAILED")
+    locs = [e["loc"] for e in body["details"]["errors"]]
+    assert any("idempotency-key" in [str(part).lower() for part in loc] for loc in locs), locs
+
+
+async def test_idempotency_key_exactly_128_chars_passes_header_check(app_client: httpx.AsyncClient) -> None:
+    """SAD §3: 128 is the inclusive bound. The ghost cart proves the header check was passed (404, not 422)."""
+    resp = await app_client.post(
+        f"/carts/{GHOST_CART}/checkout", json={"customer_id": "cus_1"}, headers={"Idempotency-Key": "k" * 128}
+    )
+    _err(resp, 404, "CART_NOT_FOUND")
+
+
 async def test_checkout_unknown_cart_404(app_client: httpx.AsyncClient) -> None:
     resp = await app_client.post(f"/carts/{GHOST_CART}/checkout", json={"customer_id": "cus_1"}, headers=KEY)
     _err(resp, 404, "CART_NOT_FOUND")

@@ -25,7 +25,7 @@ from src.core.errors import IdempotencyKeyRequired
 router = APIRouter(prefix="/carts", tags=["carts"])
 
 Carts = Annotated[CartService, Depends(get_cart_service)]
-IdempotencyKey = Annotated[str | None, Header(alias="Idempotency-Key")]
+IdempotencyKey = Annotated[str | None, Header(alias="Idempotency-Key", max_length=128)]  # SAD §3: ≤ 128 chars
 
 _NOT_FOUND = {404: {"model": ErrorEnvelope}}
 _MUTATION_ERRORS = {
