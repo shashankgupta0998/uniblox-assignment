@@ -646,8 +646,12 @@ checkout" and "inventory lost by a failed checkout" are one code path with one t
 | `FORBIDDEN` | 403 | Missing or wrong `X-Admin-Token` [D28] | — |
 | `INTERNAL_ERROR` | 500 | Unhandled. Never leaks a stack trace. | — |
 
-Envelope: `{"error": {"code": ..., "message": ..., "details": {...}}}`. `details` is `{}` unless the
-table says otherwise. **Distinguishability is by cause the caller can act on** — which is why
+Envelope: `{"error": {"code": ..., "message": ..., "details": {...}}}`. `details` carries the
+identifier(s) the caller acted on when the error names one — `cart_id`, `product_id`, `order_id`,
+`customer_id`, or `coupon_code` plus `redeemed_by_order_id` for `COUPON_ALREADY_REDEEMED` (which only
+ever reaches the coupon's owner) — the structured fields the table lists (`errors[]`, `changed[]`,
+`requested`/`available`, `placed_orders`/`next_milestone_at`), and is `{}` otherwise (`COUPON_INVALID`,
+`IDEMPOTENCY_KEY_REQUIRED`, `FORBIDDEN`, `INTERNAL_ERROR`). Exact bodies are in `README.md` "Errors". **Distinguishability is by cause the caller can act on** — which is why
 "not your coupon" is deliberately indistinguishable from "no such coupon". [D17]
 
 ---
