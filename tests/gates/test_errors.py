@@ -114,6 +114,6 @@ def test_only_domain_errors_are_raised_from_core() -> None:
     """TAD §7 / [D29]: src/core raises DomainError subclasses only — no bare HTTP exceptions."""
     from pathlib import Path
 
-    core = Path(__file__).resolve().parent.parent / "src" / "core"
+    core = Path(__file__).resolve().parent.parent.parent / "src" / "core"
     for py in core.glob("*.py"):
         assert not re.search(r"HTTPException", py.read_text()), py.name

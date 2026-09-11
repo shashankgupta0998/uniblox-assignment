@@ -27,7 +27,7 @@ from src.core.errors import CartEmpty, CartNotFound, InsufficientInventory, Paym
 from src.core.models import Order, OrderLine
 from src.core.store import InMemoryStore
 
-SRC = Path(__file__).resolve().parent.parent / "src"
+SRC = Path(__file__).resolve().parent.parent.parent / "src"
 
 ORDER = Order(
     id="ord_1", sequence=1, cart_id="crt_1", customer_id="cus_1",

@@ -24,7 +24,7 @@ from src.core.locks import LockManager
 from src.core.models import Order, OrderLine
 from src.core.store import InMemoryStore
 
-SRC = Path(__file__).resolve().parent.parent.parent / "src"
+SRC = Path(__file__).resolve().parent.parent.parent.parent / "src"
 PIDS = [p.id for p in SEED_PRODUCTS]
 STOCK = {p.id: p.stock_total for p in SEED_PRODUCTS}
 T = 0.3  # seconds: "did not acquire within T" == blocked

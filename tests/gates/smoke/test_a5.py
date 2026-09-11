@@ -371,7 +371,7 @@ async def test_no_await_inside_mutator_lock_scope_source_audit() -> None:
     import ast
     from pathlib import Path
 
-    src = Path(__file__).resolve().parent.parent.parent / "src" / "core" / "carts.py"
+    src = Path(__file__).resolve().parent.parent.parent.parent / "src" / "core" / "carts.py"
     tree = ast.parse(src.read_text())
     offenders: list[int] = []
     for node in ast.walk(tree):

@@ -28,7 +28,7 @@ from src.core.errors import CartAlreadyCheckedOut, CartNotFound, ProductNotFound
 from src.core.models import CartState
 from src.core.store import InMemoryStore
 
-SRC = Path(__file__).resolve().parent.parent / "src"
+SRC = Path(__file__).resolve().parent.parent.parent / "src"
 
 # (method, path, success status, response_model expected?)
 EXPECTED_ROUTES = {

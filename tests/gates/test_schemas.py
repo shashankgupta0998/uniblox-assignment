@@ -184,7 +184,7 @@ def test_order_state_literal_matches_core() -> None:
 
 def test_no_float_token_in_module() -> None:
     """I14: the token `float` does not appear in schemas.py at all."""
-    text = (Path(__file__).resolve().parent.parent / "src" / "api" / "schemas.py").read_text()
+    text = (Path(__file__).resolve().parent.parent.parent / "src" / "api" / "schemas.py").read_text()
     assert not re.search(r"\bfloat\b", text)
     assert not re.search(r"\bDecimal\b", text)
 

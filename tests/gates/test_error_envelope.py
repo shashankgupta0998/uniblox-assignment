@@ -136,7 +136,7 @@ def test_domain_handler_never_switches_on_code() -> None:
     outside the two fixed constants used by the validation and catch-all handlers."""
     from pathlib import Path
 
-    src = Path(__file__).resolve().parent.parent / "src" / "api" / "errors.py"
+    src = Path(__file__).resolve().parent.parent.parent / "src" / "api" / "errors.py"
     text = src.read_text()
     assert not re.search(r"\bmatch\s+exc|if\s+exc\.code|==\s*ErrorCode\.|exc\.code\s*==", text)
     uses = re.findall(r"ErrorCode\.(\w+)", text)

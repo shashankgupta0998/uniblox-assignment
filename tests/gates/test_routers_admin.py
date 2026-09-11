@@ -28,7 +28,7 @@ from src.core.models import Coupon, CouponState
 from src.core.reports import ItemsPurchased, Report
 from src.core.store import InMemoryStore
 
-SRC = Path(__file__).resolve().parent.parent / "src"
+SRC = Path(__file__).resolve().parent.parent.parent / "src"
 TOKEN = "dev-admin-token"
 OK = {"X-Admin-Token": TOKEN}
 COUPON = Coupon("CPN-1", 10, 1, "cus_3", CouponState.AVAILABLE, None)

@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 WEB = ROOT / "web" / "index.html"
 
 pytestmark = pytest.mark.skipif(not WEB.exists(), reason="C11 demo harness cut: web/index.html absent [D34]")

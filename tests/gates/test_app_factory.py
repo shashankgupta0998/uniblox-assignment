@@ -23,7 +23,7 @@ from src.core.store import InMemoryStore
 from src.main import app as module_app
 from src.main import create_app
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def _mk(store: InMemoryStore | None = None) -> tuple[FastAPI, InMemoryStore]:

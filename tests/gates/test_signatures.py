@@ -333,7 +333,7 @@ def test_core_imports_nothing_from_api_or_fastapi() -> None:
     """TAD §1: dependency direction is one-way api -> core. core has no FastAPI import."""
     from pathlib import Path
 
-    core = Path(__file__).resolve().parent.parent / "src" / "core"
+    core = Path(__file__).resolve().parent.parent.parent / "src" / "core"
     offenders = []
     for py in sorted(core.glob("*.py")):
         text = py.read_text()

@@ -22,7 +22,7 @@ import pytest
 
 from src.core.idempotency import ClaimResult, ClaimStatus, IdempotencyRegistry
 
-SRC = Path(__file__).resolve().parent.parent.parent / "src"
+SRC = Path(__file__).resolve().parent.parent.parent.parent / "src"
 FP_A = "fp-a"
 FP_B = "fp-b"
 
